@@ -1,53 +1,75 @@
-// Import Express
 const express = require("express");
 const bodyParser = require("body-parser");
+const fs = require("fs-extra");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Use JSON parser
 app.use(bodyParser.json());
 
-// Temporary in-memory "database"
-let users = {};
-let messages = [];
+const DB_FILE = path.join(__dirname, "db.json");
 
-// ✅ Root route
+async function loadDB() {
+  try {
+    return await fs.readJSON(DB_FILE);
+  } catch {
+    return { users: [], messages: [] };
+  }
+}
+
+async function saveDB(data) {
+  await fs.writeJSON(DB_FILE, data, { spaces: 2 });
+}
+
+// Root
 app.get("/", (req, res) => {
-  res.send("✅ Backend is running!");
+  res.send("✅ Backend is running with persistent DB!");
 });
 
-// ✅ Login (just with phone number for now)
-app.post("/login", (req, res) => {
-  const { phone } = req.body;
+// Login
+app.post("/login", async (req, res) => {
+  let { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "Phone number required" });
 
-  // Save user
-  users[phone] = { phone };
-  return res.json({ success: true, phone });
+  const db = await loadDB();
+  let user = db.users.find(u => u.phone === phone);
+
+  if (!user) {
+    user = { phone };
+    db.users.push(user);
+    await saveDB(db);
+  }
+
+  return res.json({ success: true, user });
 });
 
-// ✅ Send message
-app.post("/message", (req, res) => {
+// Send message
+app.post("/message", async (req, res) => {
   const { from, to, text } = req.body;
-  if (!from || !to || !text)
-    return res.status(400).json({ error: "from, to, text required" });
+  if (!from || !to || !text) return res.status(400).json({ error: "from, to, text required" });
+
+  const db = await loadDB();
 
   const msg = { from, to, text, time: Date.now() };
-  messages.push(msg);
+  db.messages.push(msg);
+  await saveDB(db);
+
   return res.json({ success: true, message: msg });
 });
 
-// ✅ Get messages for a user
-app.get("/messages/:phone", (req, res) => {
+// Get messages
+app.get("/messages/:phone", async (req, res) => {
+  const db = await loadDB();
   const phone = req.params.phone;
-  const userMessages = messages.filter(
-    (m) => m.to === phone || m.from === phone
-  );
+  const userMessages = db.messages.filter(m => m.from === phone || m.to === phone);
   return res.json({ messages: userMessages });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// List users
+app.get("/users", async (req, res) => {
+  const db = await loadDB();
+  res.json({ users: db.users });
 });
+
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
