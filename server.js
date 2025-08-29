@@ -1,75 +1,64 @@
+const fs = require("fs");
 const express = require("express");
 const bodyParser = require("body-parser");
-const fs = require("fs-extra");
-const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
 
-const DB_FILE = path.join(__dirname, "db.json");
+// Load DB
+let db = { users: [], messages: [] };
+const DB_FILE = "db.json";
 
-async function loadDB() {
-  try {
-    return await fs.readJSON(DB_FILE);
-  } catch {
-    return { users: [], messages: [] };
-  }
+if (fs.existsSync(DB_FILE)) {
+  const data = fs.readFileSync(DB_FILE);
+  db = JSON.parse(data);
 }
 
-async function saveDB(data) {
-  await fs.writeJSON(DB_FILE, data, { spaces: 2 });
-}
+// Save DB helper
+const saveDB = () => {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+};
 
 // Root
 app.get("/", (req, res) => {
-  res.send("✅ Backend is running with persistent DB!");
+  res.send("✅ Backend is running!");
 });
 
 // Login
-app.post("/login", async (req, res) => {
-  let { phone } = req.body;
+app.post("/login", (req, res) => {
+  const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "Phone number required" });
 
-  const db = await loadDB();
-  let user = db.users.find(u => u.phone === phone);
-
-  if (!user) {
-    user = { phone };
-    db.users.push(user);
-    await saveDB(db);
+  if (!db.users.includes(phone)) {
+    db.users.push(phone);
+    saveDB();
   }
-
-  return res.json({ success: true, user });
+  return res.json({ success: true, phone });
 });
 
 // Send message
-app.post("/message", async (req, res) => {
+app.post("/message", (req, res) => {
   const { from, to, text } = req.body;
-  if (!from || !to || !text) return res.status(400).json({ error: "from, to, text required" });
-
-  const db = await loadDB();
+  if (!from || !to || !text)
+    return res.status(400).json({ error: "from, to, text required" });
 
   const msg = { from, to, text, time: Date.now() };
   db.messages.push(msg);
-  await saveDB(db);
-
+  saveDB();
   return res.json({ success: true, message: msg });
 });
 
 // Get messages
-app.get("/messages/:phone", async (req, res) => {
-  const db = await loadDB();
+app.get("/messages/:phone", (req, res) => {
   const phone = req.params.phone;
-  const userMessages = db.messages.filter(m => m.from === phone || m.to === phone);
+  const userMessages = db.messages.filter(
+    (m) => m.to === phone || m.from === phone
+  );
   return res.json({ messages: userMessages });
 });
 
-// List users
-app.get("/users", async (req, res) => {
-  const db = await loadDB();
-  res.json({ users: db.users });
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
-
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
